@@ -1,4 +1,6 @@
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
+import json
+import random
 import sys
 
 
@@ -60,6 +62,9 @@ const offerOptions = {
 
 // Define initial start time of the call (defined as connection between peers).
 let startTime = null;
+
+// Define Client ID (different for different page loads)
+let clientId = %s;
 
 // Define peer connections, streams and video elements.
 const localVideo = document.getElementById('localVideo');
@@ -182,7 +187,8 @@ function setRemoteDescriptionSuccess(peerConnection) {
   setDescriptionSuccess(peerConnection, 'setRemoteDescription');
 }
 
-// Logs offer creation and sets peer connection session descriptions.
+// Logs offer creation and sets local peer connection session descriptions;
+// posts offer data to server
 function createdOffer(description) {
   trace(`Offer from localPeerConnection:\n${description.sdp}`);
 
@@ -192,16 +198,31 @@ function createdOffer(description) {
       setLocalDescriptionSuccess(localPeerConnection);
     }).catch(setSessionDescriptionError);
 
-  trace('remotePeerConnection setRemoteDescription start.');
-  remotePeerConnection.setRemoteDescription(description)
-    .then(() => {
-      setRemoteDescriptionSuccess(remotePeerConnection);
-    }).catch(setSessionDescriptionError);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/", true);
+  // Send the proper header information along with the request
+  xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+  xhr.onreadystatechange = () => {
+    // Call a function when the state changes.
+    if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+      // Request finished. Do processing here.
+    }
+  };
+  xhr.send(JSON.stringify({"id": clientId, "offer": description}));
+  // xhr.send(new Int8Array());
+  // xhr.send(document);
 
-  trace('remotePeerConnection createAnswer start.');
-  remotePeerConnection.createAnswer()
-    .then(createdAnswer)
-    .catch(setSessionDescriptionError);
+
+  // trace('remotePeerConnection setRemoteDescription start.');
+  // remotePeerConnection.setRemoteDescription(description)
+  //   .then(() => {
+  //     setRemoteDescriptionSuccess(remotePeerConnection);
+  //   }).catch(setSessionDescriptionError);
+
+  // trace('remotePeerConnection createAnswer start.');
+  // remotePeerConnection.createAnswer()
+  //   .then(createdAnswer)
+  //   .catch(setSessionDescriptionError);
 }
 
 // Logs answer to offer creation and sets peer connection session descriptions.
@@ -241,7 +262,7 @@ function startAction() {
 }
 
 // Handles call button action: creates peer connection.
-function listenAction() {
+function connectAction() {
   connectButton.disabled = true;
   hangupButton.disabled = false;
 
@@ -298,7 +319,7 @@ function hangupAction() {
 
 // Add click event handlers for buttons.
 startButton.addEventListener('click', startAction);
-connectButton.addEventListener('click', listenAction);
+connectButton.addEventListener('click', connectAction);
 hangupButton.addEventListener('click', hangupAction);
 
 // Define helper functions.
@@ -327,6 +348,20 @@ function trace(text) {
 '''
 
 
+offers = {0: {}}
+
+
+def render_template():
+    for i in range(1, 3):
+        if i not in offers:
+            offers[i] = {}
+            client_id = i
+            break
+    if not client_id:
+        client_id = 0
+    return CONNECT_HTML % client_id
+
+
 class Handler(BaseHTTPRequestHandler):
     def version_string(self):
         return 'Apache'
@@ -345,7 +380,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Date', self.date_time_string())
         self.end_headers()
 
-        self.wfile.write(CONNECT_HTML.encode('utf8'))
+        self.wfile.write(render_template().encode('utf8'))
 
     def do_POST(self):
         self.log_request(with_headers=True)
@@ -358,8 +393,14 @@ class Handler(BaseHTTPRequestHandler):
 
         body = self.rfile.read(size)
         if body:
+            content_type = self.headers.get('Content-Type')
             body = body.decode('utf8')
-            print(f'{body=}')
+            if content_type.startswith('application/json'):
+                data = json.loads(body)
+                offers[data['id']] = data['offer']
+                print(f'{offers=}')
+            else:
+                print(f'{body=}')
 
         self.send_response_only(HTTPStatus.OK)
         self.send_header('Server', self.version_string())

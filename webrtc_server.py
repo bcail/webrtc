@@ -5,6 +5,8 @@
 #   https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createAnswer
 #   https://codelabs.developers.google.com/codelabs/webrtc-web/#0
 #   https://github.com/googlecodelabs/webrtc-web/tree/master (Apache-2.0 License)
+#   https://github.com/peers/peerjs
+#   about:webrtc
 
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
 import json
@@ -15,7 +17,7 @@ import sys
 #############
 # TEMPLATES #
 #############
-BASE_HTML = '''
+BASE_TEMPLATE = '''
 <!DOCTYPE html>
 
 <html>
@@ -35,30 +37,15 @@ BASE_HTML = '''
       <video id="remoteVideo" autoplay playsinline />
     </div>
 
-    <div>
-      <button id="startButton">Start Local Stream</button>
-      <button id="connectButton">Connect</button>
-      <button id="getRemoteButton">Get Remote Stream</button>
-      <button id="hangupButton">Hang Up</button>
-    </div>
+    %s
   </div>
 
 <script type="text/javascript">
 'use strict';
 
+const rtc_peer_configuration = {iceServers: [{urls: 'stun:stun.l.google.com:19302'}]}; //change this later
+
 // Define helper functions.
-
-// Gets the "other" peer connection.
-function getOtherPeer(peerConnection) {
-  return (peerConnection === localPeerConnection) ?
-      remotePeerConnection : localPeerConnection;
-}
-
-// Gets the name of a certain peer connection.
-function getPeerName(peerConnection) {
-  return (peerConnection === localPeerConnection) ?
-      'localPeerConnection' : 'remotePeerConnection';
-}
 
 // Logs an action (text) and the time when it happened on the console.
 function trace(text) {
@@ -90,7 +77,6 @@ let localStream;
 let remoteStream;
 
 let localPeerConnection;
-let remotePeerConnection;
 
 // Define MediaStreams callbacks.
 
@@ -144,76 +130,36 @@ remoteVideo.addEventListener('onresize', logResizedVideo);
 
 // Connects with new peer candidate.
 function handleConnection(event) {
+  console.log("handleConnection start");
   const peerConnection = event.target;
   const iceCandidate = event.candidate;
 
   if (iceCandidate) {
+    console.log("  ice candidate");
     const newIceCandidate = new RTCIceCandidate(iceCandidate);
-    const otherPeer = getOtherPeer(peerConnection);
-
-    otherPeer.addIceCandidate(newIceCandidate)
+    localPeerConnection.addIceCandidate(newIceCandidate)
       .then(() => {
-        handleConnectionSuccess(peerConnection);
+        trace("addIceCandidate success");
       }).catch((error) => {
-        handleConnectionFailure(peerConnection, error);
+        trace("failed to add ICE Candidate:" + error.toString());
       });
 
-    trace(`${getPeerName(peerConnection)} ICE candidate:\n` +
-          `${event.candidate.candidate}.`);
+    trace("ICE candidate:" + event.candidate.candidate);
   }
-}
-
-// Logs that the connection succeeded.
-function handleConnectionSuccess(peerConnection) {
-  trace(`${getPeerName(peerConnection)} addIceCandidate success.`);
-};
-
-// Logs that the connection failed.
-function handleConnectionFailure(peerConnection, error) {
-  trace(`${getPeerName(peerConnection)} failed to add ICE Candidate:\n`+
-        `${error.toString()}.`);
+  console.log("handleConnection end");
 }
 
 // Logs changes to the connection state.
 function handleConnectionChange(event) {
   const peerConnection = event.target;
   console.log('ICE state change event: ', event);
-  trace(`${getPeerName(peerConnection)} ICE state: ` +
-        `${peerConnection.iceConnectionState}.`);
+  trace("ICE state: " + peerConnection.iceConnectionState);
 }
 
 // Logs error when setting session description fails.
 function setSessionDescriptionError(error) {
   trace(`Failed to create session description: ${error.toString()}.`);
 }
-
-// Logs success when setting session description.
-function setDescriptionSuccess(peerConnection, functionName) {
-  const peerName = getPeerName(peerConnection);
-  trace(`${peerName} ${functionName} complete.`);
-}
-
-// Logs success when localDescription is set.
-function setLocalDescriptionSuccess(peerConnection) {
-  setDescriptionSuccess(peerConnection, 'setLocalDescription');
-}
-
-// Logs success when remoteDescription is set.
-function setRemoteDescriptionSuccess(peerConnection) {
-  setDescriptionSuccess(peerConnection, 'setRemoteDescription');
-}
-
-// Define and add behavior to buttons.
-
-// Define action buttons.
-const startButton = document.getElementById('startButton');
-const connectButton = document.getElementById('connectButton');
-const getRemoteButton = document.getElementById('getRemoteButton');
-const hangupButton = document.getElementById('hangupButton');
-
-// Set up initial action buttons status: disable call and hangup.
-connectButton.disabled = true;
-hangupButton.disabled = true;
 
 // Handles start button action: creates local MediaStream.
 function startAction() {
@@ -226,9 +172,7 @@ function startAction() {
 // Handles hangup action: ends up call, closes connections and resets peers.
 function hangupAction() {
   localPeerConnection.close();
-  remotePeerConnection.close();
   localPeerConnection = null;
-  remotePeerConnection = null;
   hangupButton.disabled = true;
   connectButton.disabled = false;
   trace('Ending call.');
@@ -237,22 +181,48 @@ function hangupAction() {
 %s
 
 </script>
+
 </body>
 </html>
 '''
 
-CONNECT_HTML = BASE_HTML % '''
+CLIENT_1_HTML = '''
+    <div id="buttons">
+      <button id="startButton">Start Local Stream</button>
+      <button id="connectButton">Start Call</button>
+      <button id="getRemoteButton">Get Remote Stream</button>
+      <button id="hangupButton">Hang Up</button>
+    </div>
+'''
+
+CLIENT_2_HTML = '''
+    <div id="buttons">
+      <button id="startButton">Start Local Stream</button>
+      <button id="connectButton">Connect to Call</button>
+      <button id="hangupButton">Hang Up</button>
+    </div>
+'''
+
+CLIENT_1_JS = '''
+// Define action buttons.
+const startButton = document.getElementById('startButton');
+const connectButton = document.getElementById('connectButton');
+const getRemoteButton = document.getElementById('getRemoteButton');
+const hangupButton = document.getElementById('hangupButton');
+
+// Set up initial action buttons status: disable call and hangup.
+connectButton.disabled = true;
+hangupButton.disabled = true;
+
 // Define Client ID (different for different page loads)
-let clientId = %s;
+let clientId = 1;
 
 // Logs offer creation and sets local peer connection session descriptions;
 // posts offer data to server
 function createdOffer(description) {
   // trace('localPeerConnection setLocalDescription start.');
   localPeerConnection.setLocalDescription(description)
-    .then(() => {
-      // setLocalDescriptionSuccess(localPeerConnection);
-    }).catch(setSessionDescriptionError);
+    .then(() => {}).catch(setSessionDescriptionError);
 
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "/meet", true);
@@ -262,28 +232,10 @@ function createdOffer(description) {
     // Call a function when the state changes.
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       // Request finished. Do processing here.
-      console.log("request finished");
+      console.log("posted offer");
     }
   };
   xhr.send(JSON.stringify({"id": clientId, "offer": description}));
-
-}
-
-// Logs answer to offer creation and sets peer connection session descriptions.
-function createdAnswer(description) {
-  trace(`Answer from remotePeerConnection:\n${description.sdp}.`);
-
-  trace('remotePeerConnection setLocalDescription start.');
-  remotePeerConnection.setLocalDescription(description)
-    .then(() => {
-      setLocalDescriptionSuccess(remotePeerConnection);
-    }).catch(setSessionDescriptionError);
-
-  trace('localPeerConnection setRemoteDescription start.');
-  localPeerConnection.setRemoteDescription(description)
-    .then(() => {
-      setRemoteDescriptionSuccess(localPeerConnection);
-    }).catch(setSessionDescriptionError);
 }
 
 // Handles call button action: creates peer connection.
@@ -304,23 +256,13 @@ function connectAction() {
     // trace(`Using audio device: ${audioTracks[0].label}.`);
   }
 
-  const servers = null;  // Allows for RTC server configuration.
-
   // Create peer connections and add behavior.
-  localPeerConnection = new RTCPeerConnection(servers);
+  localPeerConnection = new RTCPeerConnection(rtc_peer_configuration);
   // trace('Created local peer connection object localPeerConnection.');
 
   localPeerConnection.addEventListener('icecandidate', handleConnection);
   localPeerConnection.addEventListener(
     'iceconnectionstatechange', handleConnectionChange);
-
-  remotePeerConnection = new RTCPeerConnection(servers);
-  // trace('Created remote peer connection object remotePeerConnection.');
-
-  remotePeerConnection.addEventListener('icecandidate', handleConnection);
-  remotePeerConnection.addEventListener(
-    'iceconnectionstatechange', handleConnectionChange);
-  remotePeerConnection.addEventListener('addstream', gotRemoteMediaStream);
 
   // Add local stream to connection and create offer to connect.
   localPeerConnection.addStream(localStream);
@@ -341,16 +283,11 @@ function getRemoteAction() {
     // Call a function when the state changes.
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       // Request finished. Do processing here.
-      console.log("request finished: " + xhr.responseText);
-      trace('remotePeerConnection setRemoteDescription start.');
-      remotePeerConnection.setRemoteDescription(JSON.parse(xhr.responseText))
-        .then(() => {
-          setRemoteDescriptionSuccess(remotePeerConnection);
-        }).catch(setSessionDescriptionError);
-      trace('remotePeerConnection createAnswer start.');
-      remotePeerConnection.createAnswer()
-        .then(createdAnswer)
-        .catch(setSessionDescriptionError);
+      // console.log("request finished: " + xhr.responseText);
+      trace('start setting remote description for other client');
+      localPeerConnection.setRemoteDescription(JSON.parse(xhr.responseText))
+        .then(() => {}).catch(setSessionDescriptionError);
+      trace('finished setting remote description for other client');
     }
   };
   xhr.send();
@@ -363,18 +300,94 @@ getRemoteButton.addEventListener('click', getRemoteAction);
 hangupButton.addEventListener('click', hangupAction);
 '''
 
+CLIENT_2_JS = '''
+// Define action buttons.
+const startButton = document.getElementById('startButton');
+const connectButton = document.getElementById('connectButton');
+const hangupButton = document.getElementById('hangupButton');
+
+// Set up initial action buttons status: disable call and hangup.
+connectButton.disabled = true;
+hangupButton.disabled = true;
+
+let clientId = 2;
+
+let hostOffer = %s;
+
+function joinCall() {
+  // Get local media stream tracks.
+  const videoTracks = localStream.getVideoTracks();
+  const audioTracks = localStream.getAudioTracks();
+  if (videoTracks.length > 0) {
+    // trace(`Using video device: ${videoTracks[0].label}.`);
+  }
+  if (audioTracks.length > 0) {
+    // trace(`Using audio device: ${audioTracks[0].label}.`);
+  }
+
+  // Create peer connections and add behavior.
+  localPeerConnection = new RTCPeerConnection(rtc_peer_configuration);
+  // trace('Created local peer connection object localPeerConnection.');
+
+  localPeerConnection.addEventListener('icecandidate', handleConnection);
+  localPeerConnection.addEventListener(
+    'iceconnectionstatechange', handleConnectionChange);
+
+  // Add local stream to connection and create offer to connect.
+  localPeerConnection.addStream(localStream);
+  // trace('Added local stream to localPeerConnection.');
+
+  localPeerConnection.setRemoteDescription(hostOffer)
+    .then(() => {
+    }).catch(setSessionDescriptionError);
+  trace('createAnswer start.');
+  localPeerConnection.createAnswer()
+    .then(createdAnswer)
+    .catch(setSessionDescriptionError);
+}
+
+// Logs answer to offer creation and sets peer connection session descriptions.
+function createdAnswer(description) {
+  // trace('localPeerConnection setLocalDescription start.');
+  localPeerConnection.setLocalDescription(description)
+    .then(() => {}).catch(setSessionDescriptionError);
+  console.log("set local description to answer value");
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/meet", true);
+  // Send the proper header information along with the request
+  xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+  xhr.onreadystatechange = () => {
+    // Call a function when the state changes.
+    if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+      // Request finished. Do processing here.
+      console.log("posted answer to server");
+    }
+  };
+  xhr.send(JSON.stringify({"id": clientId, "offer": description}));
+}
+
+// Add click event handlers for buttons.
+startButton.addEventListener('click', startAction);
+connectButton.addEventListener('click', joinCall);
+hangupButton.addEventListener('click', hangupAction);
+'''
+
+CLIENT_1 = BASE_TEMPLATE % (CLIENT_1_HTML, CLIENT_1_JS)
 
 offers = {0: {}}
 
 
 def render_template():
     client_id = 0
-    for i in range(1, 3):
-        if i not in offers:
-            offers[i] = {}
-            client_id = i
-            break
-    return CONNECT_HTML % client_id
+    if 1 not in offers:
+        offers[1] = {}
+        return CLIENT_1
+    elif 2 not in offers:
+        offers[2] = {}
+        client_2_js = CLIENT_2_JS % json.dumps(offers[1]['offer'])
+        return BASE_TEMPLATE % (CLIENT_2_HTML, client_2_js)
+    return ''
 
 
 MEETING_PATH = '/meet'

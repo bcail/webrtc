@@ -35,11 +35,11 @@ BASE_TEMPLATE = '''
   <div id="content">
     <div>
       <p>Local Video</p>
-      <video id="localVideo" autoplay playsinline />
+      <video id="localVideo" autoplay playsinline controls />
     </div>
     <div>
       <p>Remote Video</p>
-      <video id="remoteVideo" autoplay playsinline />
+      <video id="remoteVideo" autoplay playsinline controls />
     </div>
 
     %s
@@ -106,14 +106,14 @@ function gotRemoteTrack(event) {
     const mediaStream = event.streams[0];
     remoteStream = mediaStream;
   } else {
-    trace('creating remoteStreams');
+    trace('creating remoteStream');
     if (!remoteStream) {
       remoteStream = new MediaStream();
     }
     remoteStream.addTrack(event.track);
   }
   remoteVideo.srcObject = remoteStream;
-  trace('Remote peer connection received remote stream.');
+  trace('Remote peer connection received remote stream: ' + remoteStream);
 }
 
 // Add behavior for video streams.

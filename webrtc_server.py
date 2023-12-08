@@ -7,10 +7,15 @@
 #   https://github.com/googlecodelabs/webrtc-web/tree/master (Apache-2.0 License)
 #   https://github.com/peers/peerjs
 #   about:webrtc
+# https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack
+#   stream consists of (potentially) multiple tracks: audio, video, ...
+# https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTrack
+#   adds a new media track to the set of tracks which will be transmitted to the other peer.
+# https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream
+#   obsolete!
 
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
 import json
-import random
 import sys
 
 
@@ -44,6 +49,7 @@ BASE_TEMPLATE = '''
 'use strict';
 
 const rtc_peer_configuration = {iceServers: [{urls: 'stun:stun.l.google.com:19302'}]}; //change this later
+// const rtc_peer_configuration = {iceServers: []};
 
 // Define helper functions.
 
@@ -90,14 +96,23 @@ function gotLocalMediaStream(mediaStream) {
 
 // Handles error by logging a message to the console.
 function handleLocalMediaStreamError(error) {
-  trace(`navigator.getUserMedia error: ${error.toString()}.`);
+  trace(`navigator.mediaDevices.getUserMedia error: ${error.toString()}.`);
 }
 
 // Handles remote MediaStream success by adding it as the remoteVideo src.
-function gotRemoteMediaStream(event) {
-  const mediaStream = event.stream;
-  remoteVideo.srcObject = mediaStream;
-  remoteStream = mediaStream;
+function gotRemoteTrack(event) {
+  if (event.streams && event.streams[0]) {
+    trace('got event.streams[0]');
+    const mediaStream = event.streams[0];
+    remoteStream = mediaStream;
+  } else {
+    trace('creating remoteStreams');
+    if (!remoteStream) {
+      remoteStream = new MediaStream();
+    }
+    remoteStream.addTrack(event.track);
+  }
+  remoteVideo.srcObject = remoteStream;
   trace('Remote peer connection received remote stream.');
 }
 
@@ -127,27 +142,6 @@ remoteVideo.addEventListener('loadedmetadata', logVideoLoaded);
 remoteVideo.addEventListener('onresize', logResizedVideo);
 
 // Define RTC peer connection behavior.
-
-// Connects with new peer candidate.
-function handleConnection(event) {
-  console.log("handleConnection start");
-  const peerConnection = event.target;
-  const iceCandidate = event.candidate;
-
-  if (iceCandidate) {
-    console.log("  ice candidate");
-    const newIceCandidate = new RTCIceCandidate(iceCandidate);
-    localPeerConnection.addIceCandidate(newIceCandidate)
-      .then(() => {
-        trace("addIceCandidate success");
-      }).catch((error) => {
-        trace("failed to add ICE Candidate:" + error.toString());
-      });
-
-    trace("ICE candidate:" + event.candidate.candidate);
-  }
-  console.log("handleConnection end");
-}
 
 // Logs changes to the connection state.
 function handleConnectionChange(event) {
@@ -217,6 +211,29 @@ hangupButton.disabled = true;
 // Define Client ID (different for different page loads)
 let clientId = 1;
 
+// ** store the iceCandidate here, and then add it on a button event!
+let iceCandidate;
+
+// Connects with new peer candidate.
+function handleConnection(event) {
+  console.log("handleConnection start");
+  // const peerConnection = event.target;
+  iceCandidate = event.candidate;
+
+  // if (iceCandidate) {
+  //   console.log("  ice candidate");
+  //   const newIceCandidate = new RTCIceCandidate(iceCandidate);
+  //   localPeerConnection.addIceCandidate(newIceCandidate)
+  //     .then(() => {
+  //       trace("addIceCandidate success");
+  //     }).catch((error) => {
+  //       trace("failed to add ICE Candidate:" + error.toString());
+  //     });
+
+  //   trace("ICE candidate:" + event.candidate.candidate);
+  // }
+  console.log("handleConnection end");
+}
 // Logs offer creation and sets local peer connection session descriptions;
 // posts offer data to server
 function createdOffer(description) {
@@ -247,14 +264,14 @@ function connectAction() {
   startTime = window.performance.now();
 
   // Get local media stream tracks.
-  const videoTracks = localStream.getVideoTracks();
-  const audioTracks = localStream.getAudioTracks();
-  if (videoTracks.length > 0) {
-    // trace(`Using video device: ${videoTracks[0].label}.`);
-  }
-  if (audioTracks.length > 0) {
-    // trace(`Using audio device: ${audioTracks[0].label}.`);
-  }
+  // const videoTracks = localStream.getVideoTracks();
+  // const audioTracks = localStream.getAudioTracks();
+  // if (videoTracks.length > 0) {
+  //   // trace(`Using video device: ${videoTracks[0].label}.`);
+  // }
+  // if (audioTracks.length > 0) {
+  //   // trace(`Using audio device: ${audioTracks[0].label}.`);
+  // }
 
   // Create peer connections and add behavior.
   localPeerConnection = new RTCPeerConnection(rtc_peer_configuration);
@@ -264,9 +281,15 @@ function connectAction() {
   localPeerConnection.addEventListener(
     'iceconnectionstatechange', handleConnectionChange);
 
+  localPeerConnection.addEventListener("track", gotRemoteTrack);
+
   // Add local stream to connection and create offer to connect.
-  localPeerConnection.addStream(localStream);
+  // localPeerConnection.addStream(localStream);
   // trace('Added local stream to localPeerConnection.');
+  for (const track of localStream.getTracks()) {
+    trace('adding localStream track to peer connection');
+    localPeerConnection.addTrack(track, localStream);
+  }
 
   // trace('localPeerConnection createOffer start.');
   localPeerConnection.createOffer(offerOptions)
@@ -283,11 +306,20 @@ function getRemoteAction() {
     // Call a function when the state changes.
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       // Request finished. Do processing here.
-      // console.log("request finished: " + xhr.responseText);
+      console.log("got remote description: " + xhr.responseText);
       trace('start setting remote description for other client');
       localPeerConnection.setRemoteDescription(JSON.parse(xhr.responseText))
-        .then(() => {}).catch(setSessionDescriptionError);
-      trace('finished setting remote description for other client');
+        .then(() => {
+            trace('finished setting remote description - adding ice candidate...');
+            const newIceCandidate = new RTCIceCandidate(iceCandidate);
+            localPeerConnection.addIceCandidate(newIceCandidate)
+              .then(() => {
+                trace("addIceCandidate success");
+              }).catch((error) => {
+                trace("failed to add ICE Candidate:" + error.toString());
+              });
+        })
+        .catch(setSessionDescriptionError);
     }
   };
   xhr.send();
@@ -314,16 +346,37 @@ let clientId = 2;
 
 let hostOffer = %s;
 
+// Connects with new peer candidate.
+function handleConnection(event) {
+  console.log("handleConnection start");
+  // const peerConnection = event.target;
+  const iceCandidate = event.candidate;
+
+  if (iceCandidate) {
+    console.log("  ice candidate");
+    const newIceCandidate = new RTCIceCandidate(iceCandidate);
+    localPeerConnection.addIceCandidate(newIceCandidate)
+      .then(() => {
+        trace("addIceCandidate success");
+      }).catch((error) => {
+        trace("failed to add ICE Candidate:" + error.toString());
+      });
+
+    trace("ICE candidate:" + event.candidate.candidate);
+  }
+  console.log("handleConnection end");
+}
+
 function joinCall() {
   // Get local media stream tracks.
-  const videoTracks = localStream.getVideoTracks();
-  const audioTracks = localStream.getAudioTracks();
-  if (videoTracks.length > 0) {
-    // trace(`Using video device: ${videoTracks[0].label}.`);
-  }
-  if (audioTracks.length > 0) {
-    // trace(`Using audio device: ${audioTracks[0].label}.`);
-  }
+  // const videoTracks = localStream.getVideoTracks();
+  // const audioTracks = localStream.getAudioTracks();
+  // if (videoTracks.length > 0) {
+  //   // trace(`Using video device: ${videoTracks[0].label}.`);
+  // }
+  // if (audioTracks.length > 0) {
+  //   // trace(`Using audio device: ${audioTracks[0].label}.`);
+  // }
 
   // Create peer connections and add behavior.
   localPeerConnection = new RTCPeerConnection(rtc_peer_configuration);
@@ -333,12 +386,19 @@ function joinCall() {
   localPeerConnection.addEventListener(
     'iceconnectionstatechange', handleConnectionChange);
 
+  localPeerConnection.addEventListener("track", gotRemoteTrack);
+
   // Add local stream to connection and create offer to connect.
-  localPeerConnection.addStream(localStream);
+  // localPeerConnection.addStream(localStream);
   // trace('Added local stream to localPeerConnection.');
+  for (const track of localStream.getTracks()) {
+    trace('adding localStream track to peer connection');
+    localPeerConnection.addTrack(track, localStream);
+  }
 
   localPeerConnection.setRemoteDescription(hostOffer)
     .then(() => {
+      trace('set the remote description');
     }).catch(setSessionDescriptionError);
   trace('createAnswer start.');
   localPeerConnection.createAnswer()

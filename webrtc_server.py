@@ -382,11 +382,14 @@ function joinCall() {
   localPeerConnection = new RTCPeerConnection(rtc_peer_configuration);
   // trace('Created local peer connection object localPeerConnection.');
 
+  localPeerConnection.setRemoteDescription(hostOffer)
+    .then(() => {
+      trace('set the remote description');
+    }).catch(setSessionDescriptionError);
+
   localPeerConnection.addEventListener('icecandidate', handleConnection);
   localPeerConnection.addEventListener(
     'iceconnectionstatechange', handleConnectionChange);
-
-  localPeerConnection.addEventListener("track", gotRemoteTrack);
 
   // Add local stream to connection and create offer to connect.
   // localPeerConnection.addStream(localStream);
@@ -396,10 +399,8 @@ function joinCall() {
     localPeerConnection.addTrack(track, localStream);
   }
 
-  localPeerConnection.setRemoteDescription(hostOffer)
-    .then(() => {
-      trace('set the remote description');
-    }).catch(setSessionDescriptionError);
+  localPeerConnection.addEventListener("track", gotRemoteTrack);
+
   trace('createAnswer start.');
   localPeerConnection.createAnswer()
     .then(createdAnswer)

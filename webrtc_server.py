@@ -13,6 +13,8 @@
 #   adds a new media track to the set of tracks which will be transmitted to the other peer.
 # https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream
 #   obsolete!
+# https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
+# https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
 
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
 import json

@@ -15,6 +15,10 @@
 #   obsolete!
 # https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
 # https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
+# https://webrtcforthecurious.com/
+# https://www.w3.org/TR/webrtc/
+# https://aiortc.readthedocs.io
+# https://github.com/aiortc/aiortc
 
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
 import json

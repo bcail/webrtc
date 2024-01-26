@@ -19,14 +19,6 @@ BASE_TEMPLATE = '''
   <h1>Test WEBRTC</h1>
   <div id="content">
     <div id="client_id"></div>
-    <div>
-      <p>Local Video</p>
-      <video id="localVideo" autoplay playsinline controls />
-    </div>
-    <div>
-      <p>Remote Video</p>
-      <video id="remoteVideo" autoplay playsinline controls />
-    </div>
 
     %s
   </div>
@@ -36,53 +28,7 @@ BASE_TEMPLATE = '''
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
 
-  const mediaStreamConstraints = {
-    video: true,
-  };
-
-  const localVideo = document.getElementById('localVideo');
-  const remoteVideo = document.getElementById('remoteVideo');
-
   const pc = new RTCPeerConnection(config);
-
-  async function start() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(mediaStreamConstraints);
-
-      for (const track of stream.getTracks()) {
-        pc.addTrack(track, stream);
-      }
-      localVideo.srcObject = stream;
-    } catch (err) {
-      console.error(err);
-    }
-  }
-
-  pc.ontrack = ({ track, streams }) => {
-    track.onunmute = () => {
-      if (remoteVideo.srcObject) {
-        return;
-      }
-      remoteVideo.srcObject = streams[0];
-    };
-  };
-
-  let makingOffer = false;
-
-  pc.onnegotiationneeded = async () => {
-    try {
-      makingOffer = true;
-      await pc.setLocalDescription();
-      signaler.send({ description: pc.localDescription });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      makingOffer = false;
-    }
-  };
-
-  pc.onicecandidate = ({ candidate }) => signaler.send({ candidate });
-
 
   %s
   </script>
@@ -91,30 +37,140 @@ BASE_TEMPLATE = '''
 '''
 
 CLIENT_1_HTML = '''
-    <div id="buttons">
-      <button id="startButton">Start Local Stream</button>
-      <button id="connectButton">Start Call</button>
-      <button id="getRemoteButton">Get Remote Stream</button>
-      <button id="hangupButton">Hang Up</button>
-    </div>
+  <button id="getAnswer">Get Answer</button>
 '''
 
 CLIENT_1_JS = '''
-      var client_id = 1;
-      document.getElementById("client_id").innerText = "Client 1";
+  var client_id = 1;
+  document.getElementById("client_id").innerText = "Client 1";
+
+  // ** store the iceCandidate here, and then add it on a button event!
+  let ice_candidate;
+
+function createdOffer(description) {
+  pc.setLocalDescription(description)
+    .then(() => {}).catch( (error) => {
+        console.log("set local description error" + error);
+      }
+    );
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/meet", true);
+  xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+      console.log("posted offer");
+    }
+  };
+
+  xhr.send(JSON.stringify({"id": client_id, "offer": description}));
+}
+
+function handle_ice_candidate(event) {
+  console.log("handle_ice_candidate - storing candidate");
+  ice_candidate = event.candidate;
+}
+
+function get_answer() {
+  const xhr = new XMLHttpRequest();
+  xhr.open("GET", "/meet/" + client_id, true);
+  xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+      console.log("got remote description: " + xhr.responseText);
+      pc.setRemoteDescription(JSON.parse(xhr.responseText))
+        .then(() => {
+            console.log('finished setting remote description - setting ice candidate');
+            const newIceCandidate = new RTCIceCandidate(ice_candidate);
+            pc.addIceCandidate(newIceCandidate)
+              .then(() => {
+                console.log("addIceCandidate success");
+              }).catch((error) => {
+                console.log("failed to add ICE Candidate: " + error.toString());
+              });
+          })
+        .catch( (error) => {
+            console.log("error setting remote description and ice candidate: " + error);
+          }
+        );
+    }
+  };
+  xhr.send();
+}
+
+  pc.createOffer()
+    .then(createdOffer).catch( (error) => {
+        console.log("created offer error: " + error);
+      }
+    );
+
+  const get_answer_button = document.getElementById('getAnswer');
+  get_answer_button.addEventListener('click', get_answer);
 '''
 
 CLIENT_2_HTML = '''
-    <div id="buttons">
-      <button id="startButton">Start Local Stream</button>
-      <button id="connectButton">Connect to Call</button>
-      <button id="hangupButton">Hang Up</button>
-    </div>
 '''
 
 CLIENT_2_JS = '''
-      var client_id = 2;
-      document.getElementById("client_id").innerText = "Client " + client_id;
+  var client_id = 2;
+  document.getElementById("client_id").innerText = "Client " + client_id;
+
+  let hostOffer = %s;
+
+function createdAnswer(description) {
+  pc.setLocalDescription(description)
+    .then(() => {
+        console.log("set local description to answer value");
+      }
+    ).catch( (error) => {
+        console.log("set local description error: " + error);
+      }
+    );
+
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/meet", true);
+  xhr.setRequestHeader("Content-Type", "application/json; charset=utf-8");
+  xhr.onreadystatechange = () => {
+    if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
+      console.log("posted answer to server");
+    }
+  };
+  xhr.send(JSON.stringify({"id": client_id, "offer": description}));
+}
+
+function handle_ice_candidate(event) {
+  console.log("handle_ice_candidate start");
+  const iceCandidate = event.candidate;
+
+  if (iceCandidate) {
+    console.log("  ice candidate");
+    const newIceCandidate = new RTCIceCandidate(iceCandidate);
+    pc.addIceCandidate(newIceCandidate)
+      .then(() => {
+        console.log("addIceCandidate success");
+      }).catch((error) => {
+        console.log("failed to add ICE Candidate: " + error.toString());
+      });
+  }
+  console.log("handle_ice_candidate end");
+}
+
+  pc.setRemoteDescription(hostOffer)
+    .then(() => {
+      console.log('set the remote description');
+    }).catch( (error) => {
+        console.log("set remote description error: " + error);
+      }
+    );
+  pc.createAnswer()
+    .then(createdAnswer)
+    .catch( (error) => {
+        console.log("created answer error: " + error);
+      }
+    );
+
+  pc.addEventListener('icecandidate', handle_ice_candidate);
 '''
 
 
@@ -131,7 +187,8 @@ def render_template():
         return CLIENT_1
     elif 2 not in offers:
         offers[2] = {}
-        return CLIENT_2
+        client_2_js = CLIENT_2_JS % json.dumps(offers[1]['offer'])
+        return BASE_TEMPLATE % (CLIENT_2_HTML, client_2_js)
     return ''
 
 

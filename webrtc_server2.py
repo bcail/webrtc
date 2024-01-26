@@ -1,21 +1,4 @@
 #!/usr/bin/env python3
-
-# Resources
-#   https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Signaling_and_video_calling
-#   https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createAnswer
-#   https://codelabs.developers.google.com/codelabs/webrtc-web/#0
-#   https://github.com/googlecodelabs/webrtc-web/tree/master (Apache-2.0 License)
-#   https://github.com/peers/peerjs
-#   about:webrtc
-# https://developer.mozilla.org/en-US/docs/Web/API/MediaStreamTrack
-#   stream consists of (potentially) multiple tracks: audio, video, ...
-# https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addTrack
-#   adds a new media track to the set of tracks which will be transmitted to the other peer.
-# https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/addStream
-#   obsolete!
-# https://blog.mozilla.org/webrtc/perfect-negotiation-in-webrtc/
-# https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Perfect_negotiation
-
 from http.server import HTTPServer, HTTPStatus, BaseHTTPRequestHandler
 import json
 import sys
@@ -47,6 +30,62 @@ BASE_TEMPLATE = '''
 
     %s
   </div>
+
+  <script>
+  const config = {
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  };
+
+  const mediaStreamConstraints = {
+    video: true,
+  };
+
+  const localVideo = document.getElementById('localVideo');
+  const remoteVideo = document.getElementById('remoteVideo');
+
+  const pc = new RTCPeerConnection(config);
+
+  async function start() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(mediaStreamConstraints);
+
+      for (const track of stream.getTracks()) {
+        pc.addTrack(track, stream);
+      }
+      localVideo.srcObject = stream;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  pc.ontrack = ({ track, streams }) => {
+    track.onunmute = () => {
+      if (remoteVideo.srcObject) {
+        return;
+      }
+      remoteVideo.srcObject = streams[0];
+    };
+  };
+
+  let makingOffer = false;
+
+  pc.onnegotiationneeded = async () => {
+    try {
+      makingOffer = true;
+      await pc.setLocalDescription();
+      signaler.send({ description: pc.localDescription });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      makingOffer = false;
+    }
+  };
+
+  pc.onicecandidate = ({ candidate }) => signaler.send({ candidate });
+
+
+  %s
+  </script>
 </body>
 </html>
 '''
@@ -58,11 +97,11 @@ CLIENT_1_HTML = '''
       <button id="getRemoteButton">Get Remote Stream</button>
       <button id="hangupButton">Hang Up</button>
     </div>
+'''
 
-    <script>
+CLIENT_1_JS = '''
       var client_id = 1;
       document.getElementById("client_id").innerText = "Client 1";
-    </script>
 '''
 
 CLIENT_2_HTML = '''
@@ -71,16 +110,16 @@ CLIENT_2_HTML = '''
       <button id="connectButton">Connect to Call</button>
       <button id="hangupButton">Hang Up</button>
     </div>
+'''
 
-    <script>
+CLIENT_2_JS = '''
       var client_id = 2;
-      document.getElementById("client_id").innerText = "Client 2";
-    </script>
+      document.getElementById("client_id").innerText = "Client " + client_id;
 '''
 
 
-CLIENT_1 = BASE_TEMPLATE % CLIENT_1_HTML
-CLIENT_2 = BASE_TEMPLATE % CLIENT_2_HTML
+CLIENT_1 = BASE_TEMPLATE % (CLIENT_1_HTML, CLIENT_1_JS)
+CLIENT_2 = BASE_TEMPLATE % (CLIENT_2_HTML, CLIENT_2_JS)
 
 offers = {0: {}}
 

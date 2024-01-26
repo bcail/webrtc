@@ -30,6 +30,24 @@ BASE_TEMPLATE = '''
 
   const pc = new RTCPeerConnection(config);
 
+function handle_ice_candidate(event) {
+  console.log("handle_ice_candidate: " + event.candidate);
+  const newIceCandidate = new RTCIceCandidate(event.candidate);
+  pc.addIceCandidate(newIceCandidate)
+    .then(() => {
+      console.log("addIceCandidate success");
+    }).catch((error) => {
+      console.log("failed to add ICE Candidate: " + error.toString());
+    });
+}
+
+function handle_connection_change(event) {
+  console.log('ICE state change event: ', event);
+}
+
+  pc.addEventListener('icecandidate', handle_ice_candidate);
+  pc.addEventListener('iceconnectionstatechange', handle_connection_change);
+
   %s
   </script>
 </body>
@@ -43,9 +61,6 @@ CLIENT_1_HTML = '''
 CLIENT_1_JS = '''
   var client_id = 1;
   document.getElementById("client_id").innerText = "Client 1";
-
-  // ** store the iceCandidate here, and then add it on a button event!
-  let ice_candidate;
 
 function createdOffer(description) {
   pc.setLocalDescription(description)
@@ -67,11 +82,6 @@ function createdOffer(description) {
   xhr.send(JSON.stringify({"id": client_id, "offer": description}));
 }
 
-function handle_ice_candidate(event) {
-  console.log("handle_ice_candidate - storing candidate");
-  ice_candidate = event.candidate;
-}
-
 function get_answer() {
   const xhr = new XMLHttpRequest();
   xhr.open("GET", "/meet/" + client_id, true);
@@ -81,17 +91,10 @@ function get_answer() {
       console.log("got remote description: " + xhr.responseText);
       pc.setRemoteDescription(JSON.parse(xhr.responseText))
         .then(() => {
-            console.log('finished setting remote description - setting ice candidate');
-            const newIceCandidate = new RTCIceCandidate(ice_candidate);
-            pc.addIceCandidate(newIceCandidate)
-              .then(() => {
-                console.log("addIceCandidate success");
-              }).catch((error) => {
-                console.log("failed to add ICE Candidate: " + error.toString());
-              });
+            console.log('finished setting remote description');
           })
         .catch( (error) => {
-            console.log("error setting remote description and ice candidate: " + error);
+            console.log("error setting remote description: " + error);
           }
         );
     }
@@ -104,6 +107,7 @@ function get_answer() {
         console.log("created offer error: " + error);
       }
     );
+
 
   const get_answer_button = document.getElementById('getAnswer');
   get_answer_button.addEventListener('click', get_answer);
@@ -139,23 +143,6 @@ function createdAnswer(description) {
   xhr.send(JSON.stringify({"id": client_id, "offer": description}));
 }
 
-function handle_ice_candidate(event) {
-  console.log("handle_ice_candidate start");
-  const iceCandidate = event.candidate;
-
-  if (iceCandidate) {
-    console.log("  ice candidate");
-    const newIceCandidate = new RTCIceCandidate(iceCandidate);
-    pc.addIceCandidate(newIceCandidate)
-      .then(() => {
-        console.log("addIceCandidate success");
-      }).catch((error) => {
-        console.log("failed to add ICE Candidate: " + error.toString());
-      });
-  }
-  console.log("handle_ice_candidate end");
-}
-
   pc.setRemoteDescription(hostOffer)
     .then(() => {
       console.log('set the remote description');
@@ -169,8 +156,6 @@ function handle_ice_candidate(event) {
         console.log("created answer error: " + error);
       }
     );
-
-  pc.addEventListener('icecandidate', handle_ice_candidate);
 '''
 
 

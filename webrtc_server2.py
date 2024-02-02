@@ -28,27 +28,27 @@ BASE_TEMPLATE = '''
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
 
+function log_states(pc) {
+  console.log("connection state: ", pc.connectionState);
+  console.log("signaling state: ", pc.signalingState);
+}
+
   const pc = new RTCPeerConnection(config);
+  log_states(pc);
 
-function handle_ice_candidate(event) {
-  console.log("handle_ice_candidate: " + event.candidate);
-  const newIceCandidate = new RTCIceCandidate(event.candidate);
-  pc.addIceCandidate(newIceCandidate)
-    .then(() => {
-      console.log("addIceCandidate success");
-    }).catch((error) => {
-      console.log("failed to add ICE Candidate: " + error.toString());
-    });
+function start_data_channel() {
+  console.log("starting data channel...");
+  let dataChannel = pc.createDataChannel("MyApp Channel");
+  dataChannel.addEventListener("open", (event) => {
+    // beginTransmission(dataChannel);
+    console.log("channel open!");
+  });
 }
 
-function handle_connection_change(event) {
-  console.log('ICE state change event: ', event);
-}
+  %s
 
   pc.addEventListener('icecandidate', handle_ice_candidate);
   pc.addEventListener('iceconnectionstatechange', handle_connection_change);
-
-  %s
   </script>
 </body>
 </html>
@@ -61,6 +61,18 @@ CLIENT_1_HTML = '''
 CLIENT_1_JS = '''
   var client_id = 1;
   document.getElementById("client_id").innerText = "Client 1";
+
+  // ** store the iceCandidate here, and then add it on a button event!
+  let iceCandidate;
+
+function handle_ice_candidate(event) {
+  console.log("handle_ice_candidate: " + event.candidate);
+  iceCandidate = event.candidate;
+}
+
+function handle_connection_change(event) {
+  console.log('ICE state change event: ', event);
+}
 
 function createdOffer(description) {
   pc.setLocalDescription(description)
@@ -76,6 +88,7 @@ function createdOffer(description) {
   xhr.onreadystatechange = () => {
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       console.log("posted offer");
+      log_states(pc);
     }
   };
 
@@ -92,6 +105,14 @@ function get_answer() {
       pc.setRemoteDescription(JSON.parse(xhr.responseText))
         .then(() => {
             console.log('finished setting remote description');
+            const newIceCandidate = new RTCIceCandidate(iceCandidate);
+            pc.addIceCandidate(newIceCandidate)
+              .then(() => {
+                console.log("addIceCandidate success");
+                log_states(pc);
+              }).catch((error) => {
+                console.log("failed to add ICE Candidate: " + error.toString());
+              });
           })
         .catch( (error) => {
             console.log("error setting remote description: " + error);
@@ -102,6 +123,7 @@ function get_answer() {
   xhr.send();
 }
 
+  start_data_channel();
   pc.createOffer()
     .then(createdOffer).catch( (error) => {
         console.log("created offer error: " + error);
@@ -121,6 +143,22 @@ CLIENT_2_JS = '''
   document.getElementById("client_id").innerText = "Client " + client_id;
 
   let hostOffer = %s;
+  let receiveChannel = null;
+
+function handle_ice_candidate(event) {
+  console.log("handle_ice_candidate: " + event.candidate);
+  const newIceCandidate = new RTCIceCandidate(event.candidate);
+  pc.addIceCandidate(newIceCandidate)
+    .then(() => {
+      console.log("addIceCandidate success");
+    }).catch((error) => {
+      console.log("failed to add ICE Candidate: " + error.toString());
+    });
+}
+
+function handle_connection_change(event) {
+  console.log('ICE state change event: ', event);
+}
 
 function createdAnswer(description) {
   pc.setLocalDescription(description)
@@ -138,10 +176,29 @@ function createdAnswer(description) {
   xhr.onreadystatechange = () => {
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       console.log("posted answer to server");
+      log_states(pc);
     }
   };
   xhr.send(JSON.stringify({"id": client_id, "offer": description}));
 }
+
+function handleReceiveMessage(msg) {
+  console.log("received message");
+}
+
+function handleReceiveChannelStatusChange(event) {
+  console.log("receive channel status change");
+}
+
+function receiveChannelCallback(event) {
+  console.log("received channel");
+  receiveChannel = event.channel;
+  receiveChannel.onmessage = handleReceiveMessage;
+  receiveChannel.onopen = handleReceiveChannelStatusChange;
+  receiveChannel.onclose = handleReceiveChannelStatusChange;
+}
+
+  pc.ondatachannel = receiveChannelCallback;
 
   pc.setRemoteDescription(hostOffer)
     .then(() => {

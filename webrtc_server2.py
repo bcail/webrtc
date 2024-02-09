@@ -23,7 +23,7 @@ BASE_TEMPLATE = '''
     %s
   </div>
 
-  <script>
+<script>
   const config = {
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
@@ -33,23 +33,47 @@ function log_states(pc) {
   console.log("signaling state: ", pc.signalingState);
 }
 
+  let dataChannel = null;
   const pc = new RTCPeerConnection(config);
   log_states(pc);
 
+function send_message(msg) {
+  dataChannel.send(msg);
+}
+
 function start_data_channel() {
   console.log("starting data channel...");
-  let dataChannel = pc.createDataChannel("MyApp Channel");
+  dataChannel = pc.createDataChannel("MyApp Channel");
   dataChannel.addEventListener("open", (event) => {
-    // beginTransmission(dataChannel);
     console.log("channel open!");
+    send_message("hello world");
   });
+  dataChannel.addEventListener("close", (event) => {
+    console.log("channel closed");
+  });
+}
+
+function handleReceiveMessage(msg) {
+  console.log("received message");
+}
+
+function handleReceiveChannelStatusChange(event) {
+  console.log("receive channel status change");
+}
+
+function receiveChannelCallback(event) {
+  console.log("received channel");
+  dataChannel = event.channel;
+  dataChannel.onmessage = handleReceiveMessage;
+  dataChannel.onopen = handleReceiveChannelStatusChange;
+  dataChannel.onclose = handleReceiveChannelStatusChange;
 }
 
   %s
 
   pc.addEventListener('icecandidate', handle_ice_candidate);
   pc.addEventListener('iceconnectionstatechange', handle_connection_change);
-  </script>
+</script>
 </body>
 </html>
 '''
@@ -143,7 +167,6 @@ CLIENT_2_JS = '''
   document.getElementById("client_id").innerText = "Client " + client_id;
 
   let hostOffer = %s;
-  let receiveChannel = null;
 
 function handle_ice_candidate(event) {
   console.log("handle_ice_candidate: " + event.candidate);
@@ -182,24 +205,7 @@ function createdAnswer(description) {
   xhr.send(JSON.stringify({"id": client_id, "offer": description}));
 }
 
-function handleReceiveMessage(msg) {
-  console.log("received message");
-}
-
-function handleReceiveChannelStatusChange(event) {
-  console.log("receive channel status change");
-}
-
-function receiveChannelCallback(event) {
-  console.log("received channel");
-  receiveChannel = event.channel;
-  receiveChannel.onmessage = handleReceiveMessage;
-  receiveChannel.onopen = handleReceiveChannelStatusChange;
-  receiveChannel.onclose = handleReceiveChannelStatusChange;
-}
-
   pc.ondatachannel = receiveChannelCallback;
-
   pc.setRemoteDescription(hostOffer)
     .then(() => {
       console.log('set the remote description');

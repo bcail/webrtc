@@ -28,17 +28,27 @@ BASE_TEMPLATE = '''
     iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   };
 
-function log_states(pc) {
+function log_states(pc, dataChannel) {
   console.log("connection state: ", pc.connectionState);
   console.log("signaling state: ", pc.signalingState);
+  if (dataChannel !== null) {
+    console.log("dataChannel state: ", dataChannel.readyState);
+    console.log("dataChannel bufferedAmount: ", dataChannel.bufferedAmount);
+  }
 }
 
   let dataChannel = null;
   const pc = new RTCPeerConnection(config);
-  log_states(pc);
+  log_states(pc, dataChannel);
 
 function send_message(msg) {
-  dataChannel.send(msg);
+  if (dataChannel.readyState === "open") {
+    console.log("sending message: ", msg);
+    dataChannel.send(msg);
+  }
+  else {
+    console.log("can't send message, data channel state is: ", dataChannel.readyState);
+  }
 }
 
 function start_data_channel() {
@@ -51,14 +61,17 @@ function start_data_channel() {
   dataChannel.addEventListener("close", (event) => {
     console.log("channel closed");
   });
+  dataChannel.addEventListener("error", (event) => {
+    console.log("channel error", event);
+  });
 }
 
-function handleReceiveMessage(msg) {
-  console.log("received message");
+function handleReceiveMessage(event) {
+  console.log("received message: ", event.data);
 }
 
 function handleReceiveChannelStatusChange(event) {
-  console.log("receive channel status change");
+  console.log("receive channel status change", event);
 }
 
 function receiveChannelCallback(event) {
@@ -67,6 +80,7 @@ function receiveChannelCallback(event) {
   dataChannel.onmessage = handleReceiveMessage;
   dataChannel.onopen = handleReceiveChannelStatusChange;
   dataChannel.onclose = handleReceiveChannelStatusChange;
+  dataChannel.onerror = handleReceiveChannelStatusChange;
 }
 
   %s
@@ -112,7 +126,7 @@ function createdOffer(description) {
   xhr.onreadystatechange = () => {
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       console.log("posted offer");
-      log_states(pc);
+      log_states(pc, dataChannel);
     }
   };
 
@@ -133,7 +147,8 @@ function get_answer() {
             pc.addIceCandidate(newIceCandidate)
               .then(() => {
                 console.log("addIceCandidate success");
-                log_states(pc);
+                log_states(pc, dataChannel);
+                send_message("hello world");
               }).catch((error) => {
                 console.log("failed to add ICE Candidate: " + error.toString());
               });
@@ -199,7 +214,7 @@ function createdAnswer(description) {
   xhr.onreadystatechange = () => {
     if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200) {
       console.log("posted answer to server");
-      log_states(pc);
+      log_states(pc, dataChannel);
     }
   };
   xhr.send(JSON.stringify({"id": client_id, "offer": description}));
